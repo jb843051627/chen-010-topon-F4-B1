@@ -1,5 +1,7 @@
 package com.fc.v2.service.impl;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.fc.v2.mapper.auto.TToponNameBillMapper;
@@ -14,6 +16,8 @@ import com.fc.v2.service.ITToponNameBillService;
  */
 @Service
 public class TToponNameBillServiceImpl implements ITToponNameBillService {
+
+    private static final Logger log = LoggerFactory.getLogger(TToponNameBillServiceImpl.class);
 
     private static final int MAX_NODE = 2;
     private static final int MODE_OR = 0;
@@ -30,25 +34,57 @@ public class TToponNameBillServiceImpl implements ITToponNameBillService {
         return this.toponNameBillMapper.selectById(id);
     }
 
-    @Override
-    public TToponNameBill approve(Long id, String approver, String comment) {
-        TToponNameBill r = this.toponNameBillMapper.selectById(id);
-        if (r == null || approver == null || approver.trim().isEmpty()) {
+    /** 签批/否决同一把尺：签批人不可缺、单须在核 */
+    private TToponNameBill signable(Long id, String approver) {
+        if (approver == null || approver.trim().isEmpty()) {
             return null;
         }
-        r.setNodeNo(Integer.valueOf((r.getNodeNo() == null ? 0 : r.getNodeNo()) + 1));
-        r.setStatus(Integer.valueOf(r.getNodeNo() >= MAX_NODE ? STATUS_PASS : STATUS_RUNNING));
+        TToponNameBill r = this.toponNameBillMapper.selectById(id);
+        if (r == null) {
+            return null;
+        }
+        if (r.getStatus() != null && r.getStatus().intValue() != STATUS_RUNNING) {
+            log.warn("单已落定，不再受签 id={} status={}", id, r.getStatus());
+            return null;
+        }
+        return r;
+    }
+
+    @Override
+    public TToponNameBill approve(Long id, String approver, String comment) {
+        TToponNameBill r = signable(id, approver);
+        if (r == null) {
+            return null;
+        }
+        int signCount = (r.getSignCount() == null ? 0 : r.getSignCount().intValue()) + 1;
+        int need = r.getNeedCount() == null ? 1 : r.getNeedCount().intValue();
+        int mode = r.getSignMode() == null ? MODE_OR : r.getSignMode().intValue();
+        if (mode == MODE_OR || signCount >= need) {
+            // 任一人即过，或两名点齐：进一层，本层签数清零
+            int node = (r.getNodeNo() == null ? 0 : r.getNodeNo().intValue()) + 1;
+            r.setNodeNo(Integer.valueOf(node));
+            r.setSignCount(Integer.valueOf(0));
+            r.setStatus(Integer.valueOf(node >= MAX_NODE ? STATUS_PASS : STATUS_RUNNING));
+        } else {
+            // 点齐未满：原地等下一票
+            r.setSignCount(Integer.valueOf(signCount));
+            r.setStatus(Integer.valueOf(STATUS_RUNNING));
+        }
         this.toponNameBillMapper.updateById(r);
+        log.info("签批落印 id={} approver={} node={} signCount={} status={}",
+                id, approver, r.getNodeNo(), r.getSignCount(), r.getStatus());
         return r;
     }
 
     @Override
     public TToponNameBill reject(Long id, String approver, String comment) {
-        TToponNameBill r = this.toponNameBillMapper.selectById(id);
+        TToponNameBill r = signable(id, approver);
         if (r == null) {
             return null;
         }
+        r.setStatus(Integer.valueOf(STATUS_VETO));
         this.toponNameBillMapper.updateById(r);
+        log.info("否决打回 id={} approver={}", id, approver);
         return r;
     }
 
@@ -58,9 +94,13 @@ public class TToponNameBillServiceImpl implements ITToponNameBillService {
         if (r == null) {
             return null;
         }
-        int node = r.getNodeNo() == null ? 0 : r.getNodeNo();
+        int node = r.getNodeNo() == null ? 0 : r.getNodeNo().intValue();
         r.setNodeNo(Integer.valueOf(Math.max(0, node - 1)));
+        // 与核讫/打回核齐：退回即回到在核，本层签数重来
+        r.setSignCount(Integer.valueOf(0));
+        r.setStatus(Integer.valueOf(STATUS_RUNNING));
         this.toponNameBillMapper.updateById(r);
+        log.info("退回上一环节 id={} node={}", id, r.getNodeNo());
         return r;
     }
 }

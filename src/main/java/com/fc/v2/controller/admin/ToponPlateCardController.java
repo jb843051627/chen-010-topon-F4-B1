@@ -45,6 +45,7 @@ public class ToponPlateCardController extends BaseController {
     @ResponseBody
     public ResultTable list(TToponPlateCard record) {
         QueryWrapper<TToponPlateCard> queryWrapper = new QueryWrapper<TToponPlateCard>();
+        queryWrapper.eq("del_flag", 0);
         startPage();
         com.github.pagehelper.PageInfo<TToponPlateCard> page =
                 new com.github.pagehelper.PageInfo<TToponPlateCard>(toponPlateCardService.selectTToponPlateCardList(queryWrapper));

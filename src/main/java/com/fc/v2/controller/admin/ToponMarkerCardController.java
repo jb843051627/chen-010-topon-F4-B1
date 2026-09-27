@@ -45,6 +45,7 @@ public class ToponMarkerCardController extends BaseController {
     @ResponseBody
     public ResultTable list(TToponMarkerCard record) {
         QueryWrapper<TToponMarkerCard> queryWrapper = new QueryWrapper<TToponMarkerCard>();
+        queryWrapper.eq("del_flag", 0);
         startPage();
         com.github.pagehelper.PageInfo<TToponMarkerCard> page =
                 new com.github.pagehelper.PageInfo<TToponMarkerCard>(toponMarkerCardService.selectTToponMarkerCardList(queryWrapper));
